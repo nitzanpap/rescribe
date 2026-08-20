@@ -72,6 +72,27 @@
 <!-- ============ the one surface ============ -->
 <div id="view-home">
 
+<!-- Whatever is still running, when you are not looking at it. Recording and
+     transcribing both survive being left, and both used to own the whole screen
+     with no way out — so leaving one meant it could not be got back to, and there
+     was nowhere to be while the other one happened. One row each, and a row is
+     here only when that thing is live and its own screen is not the one on. -->
+<div id="live-strip" hidden>
+  <button class="live" id="live-rec" hidden>
+    <span class="dot"></span>
+    <!-- No data-i18n: paintStrip writes this, because it says Recording, Muted or
+         Paused depending. Switching language would otherwise put "Recording" back
+         over a paused one until the next poll corrected it. -->
+    <span class="what">Recording</span>
+    <b id="live-rec-clock">0:00</b>
+  </button>
+  <button class="live" id="live-job" hidden>
+    <span class="dot"></span>
+    <span class="what" data-i18n="live.transcribing">Transcribing</span>
+    <b id="live-job-pct">0%</b>
+  </button>
+</div>
+
 <!-- Things to tell you about before you have started anything: new recordings
      found, a run that never finished, audio the app never wrote out, a permission
      it still needs. All of them are about the surface, so none of them belongs on
@@ -315,11 +336,13 @@
   <div class="tape" id="job-tape"><i></i></div>
   <progress class="sr" id="job-progress" max="100" value="0" aria-label="Transcription progress"></progress>
 
-  <!-- Permission to go away. The commonest thing anybody wants to know during a
-       forty-minute wait is whether they are required to sit through it. -->
-  <p class="hint" id="job-leave" hidden data-i18n="job.leave">You can leave this — it keeps
-    going whether or not you are watching, and the transcript will be in your library when
-    it is done.</p>
+  <!-- The way out, rather than a note saying one exists. This said "you can leave
+       this" for as long as there was nothing to leave it with: the phase the screen
+       is in is derived from there being a job, so nothing but starting something
+       else ever took it away. -->
+  <p class="hint" id="job-leave" hidden><span data-i18n="job.leave">This keeps going whether
+    or not you are watching, and the transcript will be in your library when it is done.</span>
+    <button class="link" id="job-back" data-i18n="job.back">Do something else</button></p>
 
   <!-- The heartbeat: what has been transcribed so far, arriving as it arrives. Not
        the transcript, which comes at the end — just enough to see it is alive. -->
@@ -413,8 +436,27 @@
     <p id="rec-losing-what"></p>
   </div>
 
+  <!-- Two states that are not faults and have to be told apart, because they do
+       opposite things to the file: a mute keeps the time and drops the voice, a
+       pause drops the time for both sides. Neither is obvious from a button. -->
+  <div class="note" id="rec-muted" hidden>
+    <h2 id="rec-muted-title"></h2>
+    <p data-i18n="rec.muted"></p>
+  </div>
+  <div class="note" id="rec-paused" hidden>
+    <h2 data-i18n="rec.status.paused">Paused</h2>
+    <p data-i18n="rec.paused"></p>
+  </div>
+
   <div class="actions">
     <button class="solid" id="rec-stop" data-i18n="rec.stop">Stop</button>
+    <!-- Mute leaves the recording running and takes the voice out of it: the clock
+         goes on, the computer's side keeps every word, and only this side goes
+         quiet. Pause is the other thing — it says this time does not belong to the
+         recording at all, and closes it up for both sides together. -->
+    <button id="rec-mute" data-i18n="rec.mute">Mute me</button>
+    <button id="rec-pause" data-i18n="rec.pause">Pause</button>
+    <button class="link" id="rec-back" data-i18n="rec.back">Do something else</button>
     <button class="link danger" id="rec-throw" data-i18n="rec.throw">Stop and throw it away</button>
   </div>
 </main>

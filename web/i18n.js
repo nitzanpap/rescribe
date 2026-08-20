@@ -112,8 +112,19 @@ const STRINGS = {
     "rec.oneChannel": "one source",
     "rec.stopsAfter": "stops by itself after {n} min",
     "rec.status.recording": "Recording",
+    "rec.status.paused": "Paused",
     "rec.status.stopping": "Finishing the file",
     "rec.status.saving": "Saving",
+    "rec.mute": "Mute me", "rec.unmute": "Unmute me",
+    "rec.muted": "Your voice is being left out. The recording is still running and your " +
+      "computer's audio is still being kept — only this side goes quiet, and the timing of " +
+      "everything else stays exactly where it is.",
+    "rec.mutedFor": "{at} left out",
+    "rec.pause": "Pause", "rec.resume": "Resume",
+    "rec.paused": "Paused. Nothing is being recorded and this time will not appear in the " +
+      "recording at all — it is closed up rather than kept as silence.",
+    "rec.cannotPause": "This recording cannot be paused, because of how it is being captured.",
+    "rec.back": "Do something else",
     "rec.savedTitle": "Recorded {at}",
     "rec.needLoopbackTitle": "Your computer's audio cannot be recorded yet",
     "rec.needLoopbackWhat": "macOS offers apps the microphone and nothing else — there is no " +
@@ -175,6 +186,9 @@ const STRINGS = {
     "job.hours": "{n} hr",
     "job.leave": "You can leave this. It keeps going whether or not anybody is watching, and " +
       "the transcript will be waiting in your list when it is done.",
+    "job.back": "Do something else",
+    "live.recording": "Recording", "live.transcribing": "Transcribing",
+    "live.muted": "Muted",
     "job.cancel": "Cancel transcription", "job.again": "Transcribe another file",
     "job.copy": "Copy text", "job.copied": "Copied",
     "job.save": "Save a copy…",
@@ -400,8 +414,18 @@ const STRINGS = {
     "rec.oneChannel": "מקור אחד",
     "rec.stopsAfter": "‏נעצרת לבד אחרי {n} דק׳",
     "rec.status.recording": "מקליט",
+    "rec.status.paused": "מושהה",
     "rec.status.stopping": "מסיים את הקובץ",
     "rec.status.saving": "שומר",
+    "rec.mute": "להשתיק אותי", "rec.unmute": "לבטל השתקה",
+    "rec.muted": "הקול שלכם מושמט. ההקלטה עדיין רצה והאודיו של המחשב עדיין נשמר — רק הצד " +
+      "הזה שותק, והתזמון של כל השאר נשאר בדיוק במקומו.",
+    "rec.mutedFor": "‏{at} הושמטו",
+    "rec.pause": "השהיה", "rec.resume": "המשך",
+    "rec.paused": "מושהה. שום דבר לא מוקלט והזמן הזה לא יופיע בהקלטה בכלל — הוא נסגר ולא " +
+      "נשמר כשקט.",
+    "rec.cannotPause": "אי אפשר להשהות את ההקלטה הזאת, בגלל האופן שבו היא נקלטת.",
+    "rec.back": "לעשות משהו אחר",
     "rec.savedTitle": "‏הוקלטו {at}",
     "rec.needLoopbackTitle": "עדיין אי אפשר להקליט את האודיו של המחשב",
     "rec.needLoopbackWhat": "‏macOS מציע לאפליקציות את המיקרופון וזה הכול — אין התקן קלט " +
@@ -454,6 +478,9 @@ const STRINGS = {
     "job.hours": "‏{n} שע׳",
     "job.leave": "אפשר לעזוב את המסך. זה ממשיך גם כשאף אחד לא מסתכל, והתמליל יחכה ברשימה " +
       "כשזה ייגמר.",
+    "job.back": "לעשות משהו אחר",
+    "live.recording": "מקליט", "live.transcribing": "מתמלל",
+    "live.muted": "מושתק",
     "job.cancel": "ביטול התמלול", "job.again": "תמלול קובץ נוסף",
     "job.copy": "העתקת הטקסט", "job.copied": "הועתק",
     "job.save": "שמירת עותק…",

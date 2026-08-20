@@ -11,8 +11,16 @@ const NONE = "";
 let recDevices = [];
 let recFound = null;   // the last device listing, so a language switch can redraw it
 // Whether a recording is running. app.js reads it to decide what owns the screen,
-// because recording outranks everything else that could be there.
+// because recording outranks everything else that could be there — unless it has
+// been stepped away from, which is what recAway says. A recording used to own the
+// screen absolutely, so starting one meant nothing else could be done until it was
+// over: no file could be chosen, no transcript read, nothing.
 let recIsLive = false;
+let recAway = false;
+let recSeen = null;    // the recording recAway is against
+// Whether the voice is being left out right now. The needle is drawn from this and
+// not only from the meter, because the helper goes on metering while muted.
+let recMuted = false;
 let adopted = null;    // the saved recording that has already entered the flow
 let warning = null;    // what to say about it after its recording state is gone
 
@@ -178,6 +186,16 @@ function recError(detail) {
 }
 
 $("rec-start").onclick = async (e) => {
+  // Now that the home screen is reachable during a recording, Record is a button
+  // somebody can press while one is already running. Asking for a second one is
+  // refused by the backend, and being told "a recording is already running" is a
+  // worse answer than being taken to it — which is what pressing Record means when
+  // there is already a recording.
+  if (recIsLive) {
+    recAway = false;
+    paintPhase();
+    return;
+  }
   e.currentTarget.disabled = true;
   recError(null);
   try {
@@ -202,6 +220,21 @@ async function stopRecording(keep) {
 $("rec-stop").onclick = () => stopRecording(true);
 $("rec-throw").onclick = () => stopRecording(false);
 
+// Both toggle, because both endpoints toggle: the button already says which way it
+// would go, and a second piece of state that could disagree with the backend's is a
+// second piece of state to get wrong.
+for (const [id, path] of [["rec-mute", "/record/mute"], ["rec-pause", "/record/pause"]]) {
+  $(id).onclick = async (e) => {
+    e.currentTarget.disabled = true;
+    try { await api(path, {}); } catch (err) { recError(err.detail); }
+    await refresh();
+  };
+}
+
+// Leave the recording running and give the surface back. Nothing is stopped — the
+// strip at the top of the page is how it is got back to.
+$("rec-back").onclick = () => { recAway = true; paintPhase(); };
+
 for (const id of ["rec-again", "rec-dismiss"]) {
   $(id).onclick = async () => {
     recError(null);
@@ -214,7 +247,9 @@ for (const id of ["rec-again", "rec-dismiss"]) {
 
 // --- what the poll paints ----------------------------------------------------
 
-const RECORDING_LIVE = ["recording", "stopping", "saving"];
+// "paused" belongs here: a paused recording is still a recording, and leaving it
+// out hid the whole screen — including the button that would have resumed it.
+const RECORDING_LIVE = ["recording", "paused", "stopping", "saving"];
 
 function renderRecording(rec, orphans, settings) {
   renderOrphans(orphans || []);
@@ -224,10 +259,22 @@ function renderRecording(rec, orphans, settings) {
        && !(settings || {}).capture_checked);
   const live = !!rec && RECORDING_LIVE.includes(rec.status);
   recIsLive = live;
-  show($("rec-live"), live);
-  // The needles run on their own faster clock while there is something to show,
-  // and not at all otherwise.
-  needlesFor(!!rec && rec.status === "recording");
+  recMuted = !!(rec && rec.muted);
+  // A new recording is a new question about whether to watch it, so stepping away
+  // from the last one does not carry over. The same shape as app.js dropping its
+  // pin when a different job turns up.
+  if (rec && rec.id !== recSeen) { recSeen = rec.id; recAway = false; }
+  if (!live) recAway = false;
+  // Which screen is on is paintPhase's decision, including this one. It used to be
+  // made here, on the once-a-second poll, and the two disagreed for up to a second
+  // every time somebody stepped away from a recording or came back to it: leaving
+  // showed the home screen with the recording screen still under it, and coming
+  // back showed neither. Measured, both.
+  // The needles run on their own faster clock while there is something to show, and
+  // not at all otherwise — which now includes a recording nobody is looking at:
+  // fifteen requests a second to animate a hidden bar is fifteen requests a second
+  // of nothing.
+  needlesFor(!!rec && rec.status === "recording" && !recAway);
   if (rec && rec.status === "saved") adopt(rec);
   renderWarning();
 
@@ -257,7 +304,8 @@ function renderRecording(rec, orphans, settings) {
       row.querySelector(".who").textContent = asked[n] || "";
       // Dimmed rather than hidden: a side that was asked for and is silent is
       // information, and taking its row away would leave nothing to notice.
-      row.classList.toggle("gone", (rec.not_arriving || []).includes(side));
+      row.classList.toggle("gone", (rec.not_arriving || []).includes(side)
+                           || (side === "voice" && !!rec.muted));
     });
     // A side that is producing nothing, while it is still worth knowing. It goes
     // away by itself when audio starts arriving, because then it is no longer true.
@@ -288,8 +336,31 @@ function renderRecording(rec, orphans, settings) {
         t("rec.losing." + side,
           { pct: Math.round(((rec.padding || {})[side] || {}).fraction * 100) })).join("\n\n");
     }
-    $("rec-stop").disabled = rec.status !== "recording";
-    $("rec-throw").disabled = rec.status !== "recording";
+    // Stopping works while paused too. Anything else means somebody who paused,
+    // walked away and came back has to resume — putting time in the recording they
+    // paused to keep out of it — before they are allowed to end it.
+    const going = ["recording", "paused"].includes(rec.status);
+    $("rec-stop").disabled = !going;
+    $("rec-throw").disabled = !going;
+
+    // Mute says what it would do, not what is happening — the note below says that.
+    const held = rec.status === "paused";
+    $("rec-mute").textContent = t(rec.muted ? "rec.unmute" : "rec.mute");
+    $("rec-mute").disabled = rec.status !== "recording";
+    $("rec-pause").textContent = t(held ? "rec.resume" : "rec.pause");
+    // Pause is refused by the backend when the helper is not the one capturing,
+    // which is every platform that is not macOS. Said here rather than found out by
+    // pressing it.
+    const canPause = ["recording", "paused"].includes(rec.status) && !!rec.can_pause;
+    $("rec-pause").disabled = !canPause;
+    $("rec-pause").title = canPause ? "" : t("rec.cannotPause");
+
+    show($("rec-muted"), !!rec.muted);
+    if (rec.muted) {
+      $("rec-muted-title").textContent = t("rec.mutedFor",
+        { at: longClock(rec.muted_seconds || 0) });
+    }
+    show($("rec-paused"), held);
   }
 
 }
@@ -323,7 +394,10 @@ function adopt(rec) {
   // recording is waiting to see. If this recording was queued, that job is the
   // new one and the flow follows it.
   pin();
-  if (!rec.job_id) {
+  // Only into an empty field. Somebody who left a recording running, went back and
+  // chose a file to transcribe would have had that choice overwritten the moment the
+  // recording ended — silently, and with a different file's path.
+  if (!rec.job_id && !$("source").value.trim()) {
     $("source").value = rec.path;
     inspect();
   }
@@ -425,7 +499,12 @@ async function watchNeedles() {
     return;
   }
   for (const side of ["voice", "computer"]) {
-    const target = needleWidth(m.peak?.[side] ?? -120);
+    // A muted voice still reaches the helper and the helper still meters it, so the
+    // needle went on bouncing while nothing said was going to be in the file. A
+    // meter showing sound that is being thrown away is the same lie as a meter
+    // showing sound that never arrived — see docs/TRAPS.md §1.
+    const target = (side === "voice" && recMuted)
+      ? 0 : needleWidth(m.peak?.[side] ?? -120);
     shown[side] = target > shown[side] ? target : Math.max(target, shown[side] - FALL);
   }
   paintNeedles();

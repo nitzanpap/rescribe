@@ -442,6 +442,15 @@ async def record_pause() -> dict:
         raise HTTPException(400, {"code": exc.code, "message": exc.message, "details": ""})
 
 
+@app.post("/api/record/mute")
+async def record_mute() -> dict:
+    """Take the voice out of what is being recorded, or put it back. Toggles."""
+    try:
+        return await record.mute()
+    except Failed as exc:
+        raise HTTPException(400, {"code": exc.code, "message": exc.message, "details": ""})
+
+
 @app.post("/api/record/toggle")
 async def record_toggle() -> dict:
     """Start or stop, with nothing to say. The menu bar has nowhere to ask."""

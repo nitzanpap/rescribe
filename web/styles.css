@@ -294,6 +294,26 @@ button.danger:hover { color: var(--accent); border-color: var(--accent); }
      lines read right-to-left with punctuation in place and English lines don't. */
   unicode-bidi: plaintext; text-align: start;
 }
+/* --- what is still running, when you are not looking at it --- */
+/* The counterpart to being allowed to leave a recording or a transcription: one
+   row per live thing, and clicking it goes back to that thing's own screen. */
+#live-strip { display: flex; gap: .6rem; flex-wrap: wrap; margin-bottom: 1.6rem; }
+button.live {
+  display: flex; align-items: center; gap: .5rem;
+  text-transform: none; letter-spacing: .02em; font-family: var(--sans);
+  font-size: .88rem; padding: .45rem .8rem;
+}
+button.live b { font-variant-numeric: tabular-nums; color: var(--ink); }
+button.live .dot {
+  width: .42rem; height: .42rem; border-radius: 50%; background: var(--accent); flex: none;
+  animation: breathe 2s ease-in-out infinite;
+}
+/* Paused or muted: still there, no longer taking anything in. A still dot rather
+   than a beating one, because the difference is the whole message. */
+button.live.held .dot { background: var(--ink-soft); animation: none; }
+@keyframes breathe { 50% { opacity: .25; } }
+@media (prefers-reduced-motion: reduce) { button.live .dot { animation: none; } }
+
 .note { border-inline-start: 2px solid var(--accent); padding: .1rem 0 .1rem .9rem;
         padding-inline-start: .9rem; margin: 1.5rem 0; }
 .note h2 { font: 400 1.15rem/1.3 var(--display); }
