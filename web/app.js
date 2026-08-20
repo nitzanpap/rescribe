@@ -309,6 +309,9 @@ $("job-cancel").onclick = async () => {
   await refresh();
 };
 $("job-again").onclick = () => { leaveFlow(); render(lastState); };
+// Leave a job that is still running. leaveFlow pins it and clears the form; nothing
+// is cancelled, and the strip at the top of the page brings it back.
+$("job-back").onclick = () => { leaveFlow(); render(lastState); };
 
 const STAGE_KEYS = ["queued", "starting", "converting", "transcribing", "saving",
                     "completed", "cancelling", "cancelled", "failed"];
@@ -411,7 +414,11 @@ function phaseOf(s) {
   // picked up would otherwise show the previous transcription's result, and then
   // the flow would follow the wrong run.
   if (pinned && s.job && s.job.id !== pinnedPast) pinned = false;
-  if (typeof recIsLive !== "undefined" && recIsLive) return "recording";
+  // Recording still outranks everything, but only while it is being watched.
+  // recAway is the way out of it, and the strip at the top of the page is the way
+  // back in — the same shape as `pinned` for a job.
+  if (typeof recIsLive !== "undefined" && recIsLive
+      && !(typeof recAway !== "undefined" && recAway)) return "recording";
   if (s.job && !pinned) return s.job.status === "completed" ? "done" : "working";
   return $("source").value.trim() ? "ready" : "idle";
 }
@@ -460,10 +467,50 @@ function paintPhase() {
   const reading = !$("reader").hidden || readFor !== null;
   show($("screen-start"), !reading && (at === "idle" || at === "ready"));
   show($("screen-job"), !reading && (at === "working" || at === "done"));
+  // Here rather than in renderRecording, so that stepping away from a recording and
+  // coming back to it change the screen in the same frame as the click.
+  show($("rec-live"), !reading && at === "recording");
   show($("resting"), !reading && at === "idle");
   show($("notices"), !reading && at === "idle");
+  paintStrip(s, at, reading);
   return { at, reading };
 }
+
+// What is still running, when its own screen is not the one being looked at.
+//
+// This is the other half of being allowed to leave: a recording that owns the whole
+// screen cannot be forgotten about, and one that can be walked away from can — so
+// the way out and the way back have to arrive together, or the second feature is a
+// way to lose a meeting.
+function paintStrip(s, at, reading) {
+  const rec = s.recording;
+  const recLive = typeof recIsLive !== "undefined" && recIsLive;
+  const job = s.job;
+  const jobLive = !!job && (job.status === "running" || job.status === "cancelling");
+  // Each row only when its own screen is elsewhere. Showing a row for the thing
+  // already filling the screen is a button that does nothing.
+  const wantRec = recLive && at !== "recording";
+  const wantJob = jobLive && at !== "working";
+  show($("live-rec"), wantRec);
+  show($("live-job"), wantJob);
+  show($("live-strip"), !reading && (wantRec || wantJob));
+  if (wantRec) {
+    $("live-rec-clock").textContent = clock(rec.seconds);
+    // Muted and paused are the two things somebody who walked away most needs to
+    // see from here: both are states a recording can sit in for an hour by mistake.
+    $("live-rec").classList.toggle("held", rec.status === "paused" || !!rec.muted);
+    $("live-rec").querySelector(".what").textContent =
+      rec.status === "paused" ? t("rec.status.paused")
+      : rec.muted ? t("live.muted") : t("live.recording");
+  }
+  if (wantJob) $("live-job-pct").textContent = Math.round(job.percent) + "%";
+}
+
+$("live-rec").onclick = () => {
+  if (typeof recAway !== "undefined") recAway = false;
+  paintPhase();
+};
+$("live-job").onclick = () => { pinned = false; paintPhase(); };
 
 function renderQueue(rows) {
   show($("queue-box"), rows.length > 0);

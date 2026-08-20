@@ -181,6 +181,27 @@ def raw_input_for(rec: dict, wav_key: str, pcm_key: str) -> list[str]:
     return ["-f", "s16le", "-ar", "48000", "-ac", "1", "-i", str(pcm)]
 
 
+def muted_filter(ranges: list) -> str:
+    """Silence, over the stretches somebody muted themselves for. Nothing removed.
+
+    Muting is done here rather than while recording, so the capture is untouched and
+    the two channels cannot come out different lengths — the voice goes quiet where
+    it was muted and the file keeps every second it had.
+
+    An open end — `None` — is a mute that was still on when the recording stopped,
+    and means from there to wherever the recording ends. Written that way rather
+    than stamped with a final time because the end is not known yet when the mute
+    is closed, and a number guessed at then would be a number to get wrong.
+    """
+    if not ranges:
+        return ""
+    # Summed, not or-ed: ffmpeg's expression language has no `||`, and a sum is
+    # non-zero exactly when at least one window is open, which is what enable wants.
+    when = "+".join(f"gte(t,{start})" if end is None else f"between(t,{start},{end})"
+                    for start, end in ranges)
+    return f",volume=0:enable='{when}'"
+
+
 def mix_command(rec: dict, sources: list[str]) -> list[str]:
     """Combine the finished captures into the stereo master that gets kept.
 
@@ -193,10 +214,16 @@ def mix_command(rec: dict, sources: list[str]) -> list[str]:
         cmd += raw_input_for(rec, "voice_wav", "voice_pcm")
     if "computer" in sources:
         cmd += raw_input_for(rec, "computer_wav", "sys_pcm")
+    # The voice only, and after the resampling rather than before it: `enable` is
+    # measured in the filter's own output time, so a mute put ahead of aresample
+    # would land somewhere near where it was meant to and not on it.
+    muted = muted_filter(rec.get("muted_ranges") or [])
     if len(sources) == 2:
-        graph = (f"[0:a]{ONE_STREAM}[voice];[1:a]{ONE_STREAM}[computer];"
+        graph = (f"[0:a]{ONE_STREAM}{muted}[voice];[1:a]{ONE_STREAM}[computer];"
                  "[voice][computer]join=inputs=2:channel_layout=stereo[out]")
     else:
-        graph = f"[0:a]{ONE_STREAM}[out]"
+        # One source, which may be either of them. The computer's side was never
+        # what anybody muted.
+        graph = f"[0:a]{ONE_STREAM}{muted if sources == ['voice'] else ''}[out]"
     return cmd + ["-filter_complex", graph, "-map", "[out]", "-c:a", "pcm_s16le",
                   str(rec["wav"])]

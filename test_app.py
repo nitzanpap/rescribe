@@ -1309,6 +1309,104 @@ async def main() -> None:
     except record.Failed as exc:
         check("pausing nothing says so in a sentence", exc.message.endswith("."), exc.message)
 
+    # A paused recording can be stopped. It could not, and the menu bar's toggle
+    # already asked it to — pause it from there, press it again, and the answer was
+    # "Nothing is being recorded." about a recording that was very much there. The
+    # only way out was to resume first, which puts time in the file that somebody
+    # paused specifically to keep out of it.
+    record.RECORDING = {"status": "paused", "keep": True}
+    stopped = False
+    try:
+        await record.stop(keep=True)
+        stopped = True
+    except record.Failed as exc:
+        check("a paused recording can be stopped", False, exc.message)
+    except Exception:
+        stopped = True   # got past the guard, into signalling processes that are not there
+    check("a paused recording can be stopped", stopped)
+    record.RECORDING = None
+
+    print("muting leaves the time in and takes the voice out")
+    # The opposite of a pause, and the difference matters to the file: a pause
+    # removes the time from both sides together, a mute keeps every second of it and
+    # silences one channel. Anything that shortened one side would put the two
+    # speakers out of step with each other, which is the whole thing this app is for.
+    record.RECORDING = None
+    try:
+        await record.mute()
+        raise AssertionError("FAIL: muted something that was not recording")
+    except record.Failed as exc:
+        check("muting nothing says so in a sentence", exc.message.endswith("."), exc.message)
+
+    work = TMP / "muting"
+    work.mkdir(parents=True, exist_ok=True)
+    speaking = {"id": "m1", "status": "recording", "started_at": time.time() - 30,
+                "ended_at": None, "paused_at": None, "paused_total": 0.0,
+                "muted": False, "muted_from": None, "muted_ranges": [],
+                "devices": ["0"], "labels": ["Me", "Them"], "folder": str(work),
+                "basename": "m1", "transcribe": False, "max_seconds": 7200,
+                "voice": "0", "computer": "", "error": None, "path": None,
+                "job_id": None, "work": work, "wav": work / "master.wav",
+                "voice_wav": work / "voice.wav", "computer_wav": work / "computer.wav",
+                "sys_pcm": work / "computer.pcm", "voice_pcm": work / "voice.pcm",
+                "log": deque(maxlen=20)}
+    record.RECORDING = speaking
+    await record.mute()
+    check("muting says so while it is happening", record.public()["muted"] is True)
+    check("and remembers where it started", speaking["muted_from"] is not None)
+    check("the recording is still recording", speaking["status"] == "recording")
+    await record.mute()
+    check("unmuting closes exactly one range", len(speaking["muted_ranges"]) == 1,
+          str(speaking["muted_ranges"]))
+    start, end = speaking["muted_ranges"][0]
+    check("with both ends known", end is not None and end >= start,
+          str(speaking["muted_ranges"][0]))
+    check("and it is no longer muted", record.public()["muted"] is False)
+    await record.mute(False)
+    check("unmuting twice adds nothing", len(speaking["muted_ranges"]) == 1,
+          str(speaking["muted_ranges"]))
+    # Measured in the file's timeline, not the wall clock, or a mute lands somewhere
+    # near where it was meant to on any recording that was ever paused.
+    away = {**speaking, "muted": False, "muted_from": None, "muted_ranges": [],
+            "started_at": time.time() - 60, "paused_total": 30.0}
+    record.RECORDING = away
+    await record.mute()
+    check("mute times are measured in the recording, not the clock",
+          25 < away["muted_from"] < 35, str(away["muted_from"]))
+    record.RECORDING = None
+
+    print("and the mix is where the voice is actually taken out")
+    check("an unmuted recording's mix is untouched", mixing.muted_filter([]) == "")
+    both = " ".join(mixing.mix_command({**rec, "muted_ranges": [[3.0, 7.5]]},
+                                       ["voice", "computer"]))
+    check("a mute reaches the voice chain", "volume=0" in both, both)
+    check("and only the voice chain", both.count("volume=0") == 1, both)
+    voice_side = both.split("[voice]")[0]
+    check("on the voice side of the graph, not the computer's",
+          "volume=0" in voice_side, both)
+    check("after the resampling, where the time it names is the output's",
+          voice_side.index("aresample") < voice_side.index("volume=0"), both)
+    check("a closed range is a window", "between(t,3.0,7.5)" in both, both)
+    open_end = " ".join(mixing.mix_command({**rec, "muted_ranges": [[3.0, None]]},
+                                           ["voice", "computer"]))
+    check("a mute still on at the end runs to the end", "gte(t,3.0)" in open_end, open_end)
+    check("and never says None to ffmpeg", "None" not in open_end, open_end)
+    two = " ".join(mixing.mix_command({**rec, "muted_ranges": [[1.0, 2.0], [5.0, 6.0]]},
+                                      ["voice", "computer"]))
+    # ffmpeg's expression language has no ||, and a comma would end the option.
+    check("two mutes are summed into one enable",
+          "between(t,1.0,2.0)+between(t,5.0,6.0)" in two, two)
+    alone = " ".join(mixing.mix_command({**rec, "muted_ranges": [[1.0, 2.0]]}, ["voice"]))
+    check("a voice-only recording is still muted", "volume=0" in alone, alone)
+    machine = " ".join(mixing.mix_command({**rec, "muted_ranges": [[1.0, 2.0]]}, ["computer"]))
+    check("the computer's side alone never is — it was never what anybody muted",
+          "volume=0" not in machine, machine)
+    # Nothing is removed, so the file is the length it was. join needs both sides the
+    # same length and a trim would be how they stop being it.
+    for banned in ("atrim", "aselect", "concat"):
+        check(f"muting does not {banned} anything out of the recording",
+              banned not in both, both)
+
     # A model file is described to somebody who did not choose it, so the label has
     # to be true. large-v3-turbo matched /large/ and read as the best model on the
     # machine; it is a faster, less accurate cut of large-v3, so the label sent
@@ -1537,6 +1635,35 @@ async def main() -> None:
         have = set(re.findall(r'"([\w.]+)":', body))
         missing = sorted(k for k in wanted if k not in have)
         check(f"{lang} has every key the page uses", missing == [], str(missing[:6]))
+
+    # And every key the *scripts* ask for, which the check above cannot see: it reads
+    # the markup, and half the interface is written by hand from record.js and
+    # app.js. A mute button whose label existed in English only would have looked
+    # exactly right in testing and put one English word on a Hebrew screen.
+    #
+    # Keys ending in a dot are the left half of `t("rec.status." + rec.status)` and
+    # are not keys; the statuses themselves are covered just below.
+    asked = set()
+    for name in sorted(config.WEB_DIR.glob("*.js")):
+        if name.name == "i18n.js":
+            continue
+        asked |= {k for k in re.findall(r'\bt\("([\w.]+)"', name.read_text(encoding="utf-8"))
+                  if not k.endswith(".")}
+    check("the scripts ask for keys at all", len(asked) > 50, str(len(asked)))
+    for lang in ("en", "he"):
+        body = strings.split(f"  {lang}: {{", 1)[1]
+        have = set(re.findall(r'"([\w.]+)":', body))
+        missing = sorted(k for k in asked if k not in have)
+        check(f"{lang} has every key the scripts use", missing == [], str(missing[:6]))
+
+    # Every state a recording can be in has a word for it. These are built by
+    # concatenation, so nothing above can see them, and a recording that paused into
+    # an empty status line is a recording that looks broken.
+    for status in ("recording", "paused", "stopping", "saving"):
+        for lang in ("en", "he"):
+            body = strings.split(f"  {lang}: {{", 1)[1]
+            check(f"{lang} can say a recording is {status}",
+                  f'"rec.status.{status}"' in body, f"rec.status.{status} missing from {lang}")
 
     # And the words the backend hands the page to print. `job.was.<status>` is one
     # of these: the raw status went straight into a sentence, so a Hebrew reader

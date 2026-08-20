@@ -171,6 +171,11 @@ def about(rec: dict) -> dict:
         # recording is not usable. The only thing standing between a fault in
         # the padding and a meeting nobody can get back.
         "rescued": rec.get("rescued") or {},
+        # Stretches the voice was deliberately left out of. Written down because a
+        # channel that is silent on purpose and one that is silent because nothing
+        # was captured are the same bytes, and this is the only thing that tells
+        # them apart afterwards.
+        "muted_ranges": [list(r) for r in (rec.get("muted_ranges") or [])],
         "levels": rec.get("levels") or {},
         "snr": rec.get("snr") or {},
         "quiet": rec.get("quiet") or [],
@@ -224,7 +229,7 @@ def from_file(path: Path) -> dict:
         "devices": {"voice": {"id": None, "name": "not recorded at the time"},
                     "computer": {"id": None, "name": "not recorded at the time"}},
         "output_device": None, "helper_exit": None, "helper_used": None,
-        "stalls_seen": {}, "padded": {}, "levels": {}, "snr": {},
+        "stalls_seen": {}, "padded": {}, "muted_ranges": [], "levels": {}, "snr": {},
         "quiet": [], "noisy": [],
         "channels": channel_report(path, sources),
         "versions": _versions(),

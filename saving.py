@@ -70,6 +70,13 @@ async def _finish(rec: dict) -> None:
     rec["sources"] = sources
     if not sources:
         return _failed(rec, *_why_nothing_arrived(rec))
+    # A mute that was still on when the recording stopped. Left open — None means to
+    # the end of the file — rather than stamped with a time: the end is not known
+    # here, and a guess at it is a guess about whether somebody's last words are in
+    # the recording they asked to be left out of.
+    if rec.get("muted") and rec.get("muted_from") is not None:
+        rec.setdefault("muted_ranges", []).append([rec["muted_from"], None])
+        rec["muted"], rec["muted_from"] = False, None
     await _pad_gaps(rec)
     if not await _mix(rec, sources):
         return
@@ -212,6 +219,12 @@ async def _save(rec: dict) -> None:
     sources = rec.get("sources") or ["voice", "computer"][:len(rec["devices"])]
     rec["levels"] = await channel_levels(rec["wav"], sources)
     rec["quiet"] = silent_sides(rec, sources, rec["levels"])
+    # Muting is what this measurement is looking at, not a fault it has found. The
+    # warning exists to catch a microphone that was never heard from; telling
+    # somebody their voice is missing from the stretch they asked for it to be
+    # missing from is the app not listening.
+    if rec.get("muted_ranges"):
+        rec["quiet"] = [side for side in rec["quiet"] if side != "voice"]
     if rec["quiet"]:
         rec["log"].append("# nothing audible on: " + ", ".join(rec["quiet"]))
     # And how far the talking sat above the room, which is the measure that decides
@@ -325,6 +338,10 @@ def _checkpoint(rec: dict) -> None:
     """Leave enough on disk to save the WAV later if this process dies now."""
     record = {k: rec[k] for k in ("id", "status", "devices", "labels", "folder",
                                  "basename", "started_at", "transcribe")}
+    # .get, because these arrived later than the keys above and a checkpoint written
+    # by an older build has none of them. Carried at all because a crash must not put
+    # back what somebody deliberately took out.
+    record |= {k: rec.get(k) for k in ("muted", "muted_from", "muted_ranges")}
     try:
         (rec["work"] / "recording.json").write_text(json.dumps(record), encoding="utf-8")
     except OSError:

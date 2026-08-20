@@ -176,6 +176,12 @@ async def start(voice: str, computer: str) -> dict:
         # Time deliberately not recorded, so the clock can agree with the file.
         "paused_at": None,
         "paused_total": 0.0,
+        # Stretches of the recording the voice is taken out of, measured in the
+        # file's own timeline. Kept as times rather than acted on while recording:
+        # the mix at the end silences them, and nothing touches the capture.
+        "muted": False,
+        "muted_from": None,
+        "muted_ranges": [],
     }
     RECORDING = rec
     _checkpoint(rec)
@@ -584,9 +590,18 @@ async def check(voice: str, computer: str) -> dict:
 
 
 async def stop(keep: bool = True) -> dict:
-    """Ask ffmpeg to finish. The rest happens in the task that owns the recording."""
+    """Ask ffmpeg to finish. The rest happens in the task that owns the recording.
+
+    A paused recording can be stopped, and has to be. Pause was only ever reachable
+    from the menu bar, where `toggle` already asks this of a paused recording — and
+    got "Nothing is being recorded." for it. Making somebody resume a recording
+    purely to end it puts time in the file they paused to keep out of it.
+
+    Nothing else needs to change for it: the helper's sinks write no silence while
+    paused, so the file ends where the pause began, which is what a pause means.
+    """
     rec = RECORDING
-    if rec is None or rec["status"] != "recording":
+    if rec is None or rec["status"] not in ("recording", "paused"):
         raise Failed("not_recording", "Nothing is being recorded.")
     ask_to_stop(rec, keep)
     return public()
@@ -717,6 +732,53 @@ async def pause(resume: bool | None = None) -> dict:
     return public()
 
 
+async def mute(on: bool | None = None) -> dict:
+    """Take the voice out of this stretch, or put it back.
+
+    Not a pause and not a smaller pause. A pause says this time does not belong to
+    the recording, so it is closed up and both sides lose it together. A mute says
+    the meeting carries on and I am not in it: the clock runs, the computer's side
+    keeps every word of it, and only the voice channel goes quiet — which is the
+    only version of this that keeps the two channels lined up with each other.
+
+    Nothing is done to the capture. What is written down is when, in the file's own
+    timeline, and `mixing.muted_filter` silences those stretches when the two
+    captures are combined at the end. The capture path is where every expensive
+    fault in this project has lived (docs/TRAPS.md) and this feature has no reason
+    to go near it.
+
+    The audio is therefore still in scratch until the recording is mixed. Mute here
+    means it is not in the file you keep and not in the transcript; it does not mean
+    the words were never written to this disk.
+    """
+    rec = RECORDING
+    if rec is None or rec["status"] not in ("recording", "paused"):
+        raise Failed("not_recording", "There is no recording to mute.")
+    wanted = not rec.get("muted") if on is None else bool(on)
+    if wanted == bool(rec.get("muted")):
+        return public()
+    at = recorded_seconds(rec)
+    if wanted:
+        rec["muted_from"] = at
+    else:
+        # None would mean "to the end", so a range closed here always has both ends.
+        rec.setdefault("muted_ranges", []).append([rec.get("muted_from") or 0.0, at])
+        rec["muted_from"] = None
+    rec["muted"] = wanted
+    rec["log"].append(f"# voice {'muted' if wanted else 'unmuted'} at {at:.1f}s")
+    _checkpoint(rec)   # so a crash does not put back what somebody took out
+    return public()
+
+
+def muted_seconds(rec: dict) -> float:
+    """How much of this recording has the voice taken out of it."""
+    total = sum(max(0.0, (end or recorded_seconds(rec)) - start)
+                for start, end in (rec.get("muted_ranges") or []))
+    if rec.get("muted") and rec.get("muted_from") is not None:
+        total += max(0.0, recorded_seconds(rec) - rec["muted_from"])
+    return total
+
+
 def meters() -> dict:
     """Just the needles. Small on purpose: this is asked for many times a second.
 
@@ -753,6 +815,16 @@ def public() -> dict | None:
         # which of the two it was without knowing how they were arranged.
         "levels": rec.get("levels") or {}, "quiet": rec.get("quiet") or [],
         "snr": rec.get("snr") or {}, "noisy": rec.get("noisy") or [],
+        # Whether the voice is being left out right now, and how much of the
+        # recording has been. Both, because the button needs the first and the
+        # person deciding whether to keep this recording needs the second.
+        "muted": bool(rec.get("muted")),
+        "muted_seconds": round(muted_seconds(rec), 1),
+        # Whether pausing would work, asked here rather than guessed at from the
+        # platform: pause is the helper's, and a recording ffmpeg is making cannot
+        # do it. A button that is refused when pressed is worse than one that says
+        # so beforehand.
+        "can_pause": HELPER is not None and HELPER.returncode is None,
         # Said while it is still happening, which is the whole point of it.
         "padding": rec.get("padding") or {},
         "losing": padded_sides(rec.get("padding") or {})
