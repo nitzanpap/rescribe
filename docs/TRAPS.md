@@ -109,6 +109,19 @@ device in a listing is not a decision by the user.
   microphone have to be speech — `say -o words.aiff "tick"` works.
 - **`silencedetect` jitters by about ±10 ms.** Fine for locating a gap, not for
   measuring an offset. Use several events and take the mean spacing.
+- **`ffmpeg -ss A -to B` does not measure the window you asked for.** It is the
+  obvious way to ask "is this channel silent between A and B", and it answers about
+  some other stretch. Checking a mute applied at 1.0–2.0 s and 9.0 s–end, it called
+  the 9–10 s window fully audible where the samples there were digital zero — three
+  spot checks, all agreeing, all wrong, and the conclusion drawn from them was that
+  the feature was broken when it was not. Reading the samples directly took less
+  code and was right the first time (§20). Two smaller versions of the same hazard
+  sit beside it: **`-v error` suppresses `volumedetect`'s own output**, so a wrapper
+  grepping for `max_volume` returns an empty string — which reads as silence, not as
+  a broken measurement — and a peak taken over half-second buckets straddles the
+  edge of the thing being measured, so the bucket either side of a boundary is never
+  the value expected. Every one of these makes a working thing look broken, which is
+  entry 1 read backwards and just as expensive.
 
 ## 7. A request that waits on a human needs a human's patience
 
@@ -403,6 +416,12 @@ The methods that produced every real answer, so they can be reused:
 - **Compare against a second implementation.** Twelve lines of Swift measuring the
   same microphone through Core Audio is what proved the device was fine and the
   tool was not.
+- **Read the samples, do not ask a tool about them.** `wave`, then
+  `array.array("h")`, then `data[channel::2]`, then scan for runs under a threshold.
+  Twelve lines, no seek semantics to get wrong, and it located a mute to 4.0107 s
+  against 4.0 asked for. This is what to reach for whenever the question is "is this
+  channel silent between A and B" — see §6 for what happens when it is asked of
+  ffmpeg instead.
 
 ---
 
